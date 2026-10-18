@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Digit Scanner</title>
+<meta name="description" content="Digit frequency scanner for Deriv synthetic indices. Analysis only, no trading and no login.">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: single column, phone first. Controls, market ranking, live digit strip, paper-test scoreboard. */
+:root{
+  --bg:#0e1116; --panel:#161b23; --line:#262d38; --fg:#e7ebf0; --muted:#8b95a3;
+  --accent:#f0b429; --good:#3ecf8e; --bad:#ef6a5b; --blue:#5aa9ff;
+  --display:"Bricolage Grotesque",system-ui,sans-serif; --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;
+  padding-block:20px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+main{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+h1{font:700 26px/1.1 var(--display);margin:0;letter-spacing:-.01em;text-wrap:balance}
+h2{font:700 16px/1.2 var(--display);margin:0 0 10px;text-wrap:balance}
+.sub{color:var(--muted);margin:6px 0 0;max-width:60ch}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
+.row{display:flex;flex-wrap:wrap;gap:10px}
+.field{display:flex;flex-direction:column;gap:4px;flex:1 1 130px;min-width:0}
+label{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+select,button{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:9px 10px;min-width:0}
+button{cursor:pointer;font-weight:600}
+button.primary{background:var(--accent);color:#1a1405;border-color:var(--accent)}
+button:disabled{opacity:.5;cursor:default}
+:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.status{font:12px var(--mono);color:var(--muted)}
+.tablewrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font:13px var(--mono);font-variant-numeric:tabular-nums}
+th{font:600 11px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted);text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:9px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+tr.pick{cursor:pointer}
+tr.pick:hover td{background:rgba(255,255,255,.03)}
+tr.sel td{background:rgba(240,180,41,.1)}
+.tag{display:inline-block;padding:1px 7px;border-radius:99px;font-size:11px;border:1px solid var(--line);color:var(--muted)}
+.tag.warn{color:var(--accent);border-color:var(--accent)}
+.chips{display:flex;flex-wrap:wrap;gap:4px;font:600 14px var(--mono)}
+.chip{width:26px;height:30px;display:grid;place-items:center;border:1px solid var(--line);border-radius:6px;background:var(--bg)}
+.chip.t{outline:2px solid var(--accent);outline-offset:-2px;color:var(--accent)}
+.chip.e{border-color:var(--good);background:rgba(62,207,142,.15)}
+.pat{font:700 22px var(--mono);letter-spacing:.2em;color:var(--accent)}
+.active{color:var(--good);font-weight:600}
+.bars{display:grid;grid-template-columns:repeat(10,1fr);gap:6px;align-items:end;height:150px;position:relative;padding-top:6px}
+.bar{display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:4px;height:100%;min-width:0}
+.bar i{display:block;width:100%;background:var(--blue);border-radius:4px 4px 0 0;min-height:2px}
+.bar.t i{background:var(--accent)}
+.bar b{font:600 12px var(--mono)}
+.bar span{font:11px var(--mono);color:var(--muted)}
+.base{position:absolute;left:0;right:0;border-top:1px dashed var(--muted);opacity:.6;pointer-events:none}
+.score{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+.score div{border:1px solid var(--line);border-radius:8px;padding:10px;background:var(--bg)}
+.score strong{display:block;font:700 22px var(--mono)}
+.score small{color:var(--muted)}
+.note{font-size:13px;color:var(--muted);border-left:3px solid var(--accent);padding-left:12px;max-width:68ch}
+.err{color:var(--bad);font:13px var(--mono)}
+@media (prefers-reduced-motion:no-preference){.bar i{transition:height .25s}}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Digit Scanner</h1>
+    <p class="sub">Reads public tick data from Deriv synthetic indices and shows how the last digits have been distributed. Analysis only. It places no trades and asks for no login.</p>
+  </header>
+
+  <section class="panel" aria-label="Scan settings">
+    <div class="row">
+      <div class="field"><label for="depth">Scan depth (ticks)</label>
+        <select id="depth"><option>1000</option><option>2000</option><option selected>3000</option><option>5000</option></select></div>
+      <div class="field"><label for="ttype">Trade type</label>
+        <select id="ttype"><option value="matches">Matches</option><option value="differs">Differs</option></select></div>
+      <div class="field"><label for="target">Watch digit</label>
+        <select id="target"></select></div>
+      <div class="field"><label for="klen">Entry digits</label>
+        <select id="klen"><option value="1">1 digit</option><option value="2" selected>2 digits</option><option value="3">3 digits</option></select></div>
+      <div class="field"><label for="win">Chart window</label>
+        <select id="win"><option>100</option><option selected>500</option><option>1000</option></select></div>
+    </div>
+    <div class="row" style="margin-top:12px;align-items:center">
+      <button class="primary" id="scan">Scan markets</button>
+      <button id="watch">Watch live</button>
+      <span class="status" id="status">Not scanned yet</span>
+    </div>
+  </section>
+
+  <section class="panel" aria-label="Market ranking">
+    <h2 id="rankTitle">Markets ranked by strongest lean (tap a row to select)</h2>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Market</th><th>Digit</th><th>Lean</th><th>z</th><th>Held-out</th><th>Result</th></tr></thead>
+        <tbody id="rows"><tr><td colspan="6" style="color:var(--muted)">Press Scan markets to fetch recent ticks for all ten indices.</td></tr></tbody>
+      </table>
+    </div>
+    <p class="note" style="margin-top:12px">Lean is how far the chosen digit sits from the expected 10%. For Matches the digit is the most frequent one, for Differs it is the least frequent one. Held-out is how much of that lean was still there in the second half of the sample, which the pick never saw. Chance alone usually produces a z near 2.5 across ten digits, so only a z above 3.9 is flagged.</p>
+  </section>
+
+  <section class="panel" aria-label="Live digits">
+    <h2 id="liveTitle">Live digits</h2>
+    <div class="chips" id="chips" aria-label="Latest digits, newest last"></div>
+    <div style="height:14px"></div>
+    <div class="bars" id="bars" aria-label="Digit frequency"></div>
+  </section>
+
+  <section class="panel" aria-label="Entry digits">
+    <h2 id="entryTitle">Entry digits</h2>
+    <div id="entry"></div>
+  </section>
+
+  <section class="panel" aria-label="Paper test">
+    <h2>Paper test of two simple rules</h2>
+    <p class="sub" id="ptdesc" style="margin:0 0 10px"></p>
+    <div class="score" id="score"></div>
+  </section>
+
+  <p class="note">Deriv synthetic index digits are generated randomly. Frequencies and leans describe what happened in the sample and do not predict the next digit. The paper test above is there so you can see that for yourself. Analysis only, not financial advice.</p>
+</main>
+
+<script>
+(function(){
+  var ENDPOINTS=[
+    ['New API public','wss://api.derivws.com/trading/v1/options/ws/public'],
+    ['Legacy API','wss://ws.derivws.com/websockets/v3?app_id=1089']
+  ];
+  var epOK=-1;
+  var MARKETS=[['R_10','Volatility 10'],['R_25','Volatility 25'],['R_50','Volatility 50'],['R_75','Volatility 75'],['R_100','Volatility 100'],
+    ['1HZ10V','Volatility 10 (1s)'],['1HZ25V','Volatility 25 (1s)'],['1HZ50V','Volatility 50 (1s)'],['1HZ75V','Volatility 75 (1s)'],['1HZ100V','Volatility 100 (1s)']];
+  var $=function(id){return document.getElementById(id)};
+  var selected=MARKETS[0][0], rows=[], live=null;
+  var tally={cold:[0,0],hot:[0,0]},entryTally=[0,0],entry=null;
+
+  for(var d=0;d<10;d++){var o=document.createElement('option');o.value=d;o.textContent=d;$('target').appendChild(o);}
+  $('target').value='3';
+
+  function setStatus(t,bad){var s=$('status');s.textContent=t;s.className=bad?'status err':'status';}
+  function guessPip(prices){var m=0;prices.forEach(function(p){var s=String(p),i=s.indexOf('.');if(i>=0)m=Math.max(m,s.length-i-1);});return m;}
+  function digitOf(p,pip){return Number(p.toFixed(pip).slice(-1));}
+  function openAt(i){return new Promise(function(res,rej){
+    var ws,done=false,t=setTimeout(function(){if(!done){done=true;try{ws.close()}catch(e){}rej(new Error('timeout'));}},8000);
+    try{ws=new WebSocket(ENDPOINTS[i][1]);}catch(e){clearTimeout(t);return rej(e);}
+    ws.onopen=function(){if(done)return;done=true;clearTimeout(t);epOK=i;res(ws);};
+    ws.onerror=function(){if(done)return;done=true;clearTimeout(t);rej(new Error('failed'));};
+    ws.onclose=function(){if(done)return;done=true;clearTimeout(t);rej(new Error('closed'));};
+  });}
+  function openWS(){
+    var order=epOK>=0?[epOK]:ENDPOINTS.map(function(_,i){return i});
+    var p=Promise.reject();
+    order.forEach(function(i){p=p.catch(function(){return openAt(i)});});
+    return p.catch(function(){epOK=-1;throw new Error('Could not reach Deriv on the new or legacy endpoint. Check your connection.');});
+  }
+  function fetchDigits(symbol,count){
+    return openWS().then(function(ws){
+      return new Promise(function(res,rej){
+        var t=setTimeout(function(){ws.close();rej(new Error('Request timed out'))},20000);
+        ws.onmessage=function(e){
+          var m=JSON.parse(e.data);
+          if(m.error){clearTimeout(t);ws.close();return rej(new Error(m.error.message));}
+          if(!m.history||!m.history.prices)return;
+          clearTimeout(t);ws.close();
+          var pr=m.history.prices,pip=(m.pip_size!=null)?m.pip_size:(m.history.pip_size!=null?m.history.pip_size:guessPip(pr));
+          res({digits:pr.map(function(p){return digitOf(p,pip)}),pip:pip});
+        };
+        ws.send(JSON.stringify({ticks_history:symbol,count:count,end:'latest',style:'ticks'}));
+      });
+    });
+  }
+
+  function counts(a){var c=new Array(10).fill(0);a.forEach(function(x){c[x]++});return c;}
+  function pick(c,type){var best=0;for(var i=1;i<10;i++){if(type==='differs'?c[i]<c[best]:c[i]>c[best])best=i;}return best;}
+  function analyse(sym,name,digits,type){
+    var sg=type==='differs'?-1:1,n=digits.length,c=counts(digits),d=pick(c,type);
+    var freq=c[d]/n*100,z=sg*(c[d]-n*0.1)/Math.sqrt(n*0.09);
+    var half=Math.floor(n/2),a=digits.slice(0,half),b=digits.slice(half);
+    var d1=pick(counts(a),type),heldFreq=counts(b)[d1]/b.length*100;
+    return {sym:sym,name:name,n:n,digit:d,side:sg,lean:(freq-10)*sg,z:z,held:(heldFreq-10)*sg};
+  }
+  var cache={};
+  function buildRows(){
+    var type=$('ttype').value,out=[];
+    MARKETS.forEach(function(m){if(cache[m[0]])out.push(analyse(m[0],m[1],cache[m[0]],type));});
+    out.sort(function(a,b){return b.z-a.z});rows=out;
+  }
+
+  function renderRows(){
+    var tb=$('rows');tb.innerHTML='';
+    rows.forEach(function(r){
+      var tr=document.createElement('tr');tr.className='pick'+(r.sym===selected?' sel':'');
+      var beyond=r.z>3.9;
+      tr.innerHTML='<td>'+r.name+'</td><td>'+r.digit+' '+(r.side>0?'most frequent':'least frequent')+'</td><td>'+r.lean.toFixed(2)+' pp</td><td>'+r.z.toFixed(2)+'</td><td>'+(r.held>=0?'+':'')+r.held.toFixed(2)+' pp</td><td><span class="tag'+(beyond?' warn':'')+'">'+(beyond?'beyond chance':'within chance')+'</span></td>';
+      tr.onclick=function(){selected=r.sym;$('target').value=String(r.digit);renderRows();startLive(r.sym);};
+      tb.appendChild(tr);
+    });
+  }
+
+  function scan(){
+    var depth=+$('depth').value;cache={};$('scan').disabled=true;
+    var chain=Promise.resolve();
+    MARKETS.forEach(function(m,i){
+      chain=chain.then(function(){
+        setStatus('Scanning '+m[1]+' ('+(i+1)+'/'+MARKETS.length+')');
+        return fetchDigits(m[0],depth).then(function(r){cache[m[0]]=r.digits;});
+      });
+    });
+    chain.then(function(){
+      buildRows();selected=rows[0].sym;
+      $('target').value=String(rows[0].digit);renderRows();
+      setStatus('Scanned '+depth+' ticks per market');startLive(selected);
+    }).catch(function(e){setStatus(e.message,true);}).then(function(){$('scan').disabled=false;});
+  }
+
+  function stopLive(){if(live&&live.ka)clearInterval(live.ka);if(live&&live.ws){live.ws.onclose=null;try{live.ws.close()}catch(e){}}live=null;}
+
+  function startLive(sym){
+    stopLive();selected=sym;tally={cold:[0,0],hot:[0,0]};entry=null;entryTally=[0,0];
+    var name=(MARKETS.filter(function(m){return m[0]===sym})[0]||[0,sym])[1];
+    $('liveTitle').textContent='Live digits: '+name;
+    setStatus('Loading '+name+'...');
+    var mine={digits:[],ws:null,pip:2};live=mine;
+    fetchDigits(sym,+$('depth').value).then(function(r){
+      if(live!==mine)return;mine.digits=r.digits;mine.pip=r.pip;computeEntry();render();
+      return openWS().then(function(ws){
+        if(live!==mine){ws.close();return;}
+        mine.ws=ws;mine.ka=setInterval(function(){try{ws.send(JSON.stringify({ping:1}))}catch(e){}},40000);
+        ws.onmessage=function(e){
+          var m=JSON.parse(e.data);if(m.error){setStatus(m.error.message,true);return;}
+          if(!m.tick)return;
+          var pip=m.tick.pip_size!=null?m.tick.pip_size:mine.pip,dg=digitOf(m.tick.quote,pip);
+          paperTest(mine.digits,dg);entryTest(mine.digits,dg);mine.digits.push(dg);if(mine.digits.length>6000)mine.digits.shift();render();
+        };
+        ws.onclose=function(){if(live===mine)setStatus('Disconnected. Press Watch live to reconnect.',true);};
+        ws.send(JSON.stringify({ticks:sym,subscribe:1}));
+        setStatus('Live: '+name+' via '+ENDPOINTS[epOK>=0?epOK:0][0]);
+      });
+    }).catch(function(e){setStatus(e.message,true);});
+  }
+
+  function paperTest(digits,next){
+    if(digits.length<100)return;
+    var c=counts(digits.slice(-100)),cold=0,hot=0;
+    for(var i=1;i<10;i++){if(c[i]<c[cold])cold=i;if(c[i]>c[hot])hot=i;}
+    tally.cold[1]++;if(next===cold)tally.cold[0]++;
+    tally.hot[1]++;if(next===hot)tally.hot[0]++;
+  }
+
+
+  function stats(arr,k,T){var m={};for(var i=k;i<arr.length;i++){var key=arr.slice(i-k,i).join('');var o=m[key]||(m[key]=[0,0]);o[1]++;if(arr[i]===T)o[0]++;}return m;}
+  function computeEntry(){
+    entryTally=[0,0];entry=null;if(!live)return;
+    var ds=live.digits,T=+$('target').value,k=+$('klen').value,D=$('ttype').value==='differs';
+    if(ds.length<500)return;
+    var cut=Math.floor(ds.length*0.7),sa=stats(ds.slice(0,cut),k,T),best=null,tested=0;
+    Object.keys(sa).forEach(function(key){
+      var o=sa[key];if(o[1]<5)return;tested++;
+      var win=D?o[1]-o[0]:o[0],z=(win-o[1]*(D?0.9:0.1))/Math.sqrt(o[1]*0.09);
+      if(!best||z>best.z)best={key:key,hit:win,n:o[1],z:z};
+    });
+    if(!best)return;
+    var sb=stats(ds.slice(cut),k,T)[best.key]||[0,0];
+    entry={key:best.key,k:k,T:T,D:D,inRate:best.hit/best.n*100,inN:best.n,outHit:D?sb[1]-sb[0]:sb[0],outN:sb[1],tested:tested,sample:ds.length};
+  }
+  function entryTest(digits,next){
+    if(!entry||digits.length<entry.k)return;
+    if(digits.slice(-entry.k).join('')===entry.key){entryTally[1]++;if(entry.D?next!==entry.T:next===entry.T)entryTally[0]++;}
+  }
+  function renderEntry(){
+    var box=$('entry'),DD=$('ttype').value==='differs',bl=DD?'90%':'10%';
+    $('entryTitle').textContent='Entry digits for '+(DD?'Differs':'Matches')+' on the watched digit';
+    if(!entry){box.innerHTML='<p class="sub">Needs at least 500 ticks. Scan or watch a market first.</p>';return;}
+    var ds=live.digits,active=ds.slice(-entry.k).join('')===entry.key;
+    var outRate=entry.outN?(entry.outHit/entry.outN*100).toFixed(1)+'%':'--';
+    var fw=entryTally[1]?(entryTally[0]/entryTally[1]*100).toFixed(1)+'%':'--';
+    box.innerHTML='<div class="row" style="align-items:baseline;gap:14px"><span class="pat">'+entry.key.split('').join(' ')+'</span><span>then '+(entry.D?'a digit other than ':'digit ')+'<b>'+entry.T+'</b></span>'
+      +'<span class="'+(active?'active':'status')+'">'+(active?'Entry digits showing now':'Waiting for this sequence')+'</span></div>'
+      +'<div class="score" style="margin-top:12px">'
+      +'<div><small>In the data used to pick it</small><strong>'+entry.inRate.toFixed(1)+'%</strong><small>'+entry.inN+' occurrences, win rate, best of '+entry.tested+' sequences</small></div>'
+      +'<div><small>Held-out data (never used to pick)</small><strong>'+outRate+'</strong><small>'+entry.outN+' occurrences</small></div>'
+      +'<div><small>Live ticks since you started</small><strong>'+fw+'</strong><small>'+entryTally[0]+' wins in '+entryTally[1]+' occurrences</small></div></div>'
+      +'<p class="note" style="margin-top:12px">The best of '+entry.tested+' sequences will always look strong in the data that picked it. The held-out and live figures show what is left. A real edge would stay clearly above '+bl+'. Chance level for this trade type is '+bl+'.</p>';
+  }
+
+  function render(){
+    if(!live)return;
+    var ds=live.digits,t=+$('target').value,w=Math.min(+$('win').value,ds.length);
+    var chips=$('chips');chips.innerHTML='';
+    var recent=ds.slice(-40),act=entry&&ds.slice(-entry.k).join('')===entry.key;
+    recent.forEach(function(x,i){var s=document.createElement('span');s.className='chip'+(x===t?' t':'')+(act&&i>=recent.length-entry.k?' e':'');s.textContent=x;chips.appendChild(s);});
+    var c=counts(ds.slice(-w)),bars=$('bars');bars.innerHTML='';
+    var max=Math.max.apply(null,c.map(function(v){return v/w*100}).concat([14]));
+    for(var i=0;i<10;i++){
+      var pct=c[i]/w*100,b=document.createElement('div');b.className='bar'+(i===t?' t':'');
+      b.innerHTML='<b>'+pct.toFixed(1)+'%</b><i style="height:'+(pct/max*100*0.72)+'%"></i><span>'+i+'</span>';bars.appendChild(b);
+    }
+    var base=document.createElement('div');base.className='base';
+    base.style.bottom='calc(('+(10/max*72)+'%) * 1 + 22px)';bars.appendChild(base);
+    renderEntry();
+    var sc=$('score');
+    var DD=$('ttype').value==='differs',p=DD?0.9:0.1,tn=DD?'Differs':'Matches';
+    $('ptdesc').textContent='Before each new tick, each rule names one digit from the last 100 ticks and the tally records how often a '+tn+' bet on it would have won. A rule with a real edge would sit clearly above '+(p*100)+'%.';
+    function card(title,v){
+      var n=v[1],w=DD?n-v[0]:v[0],rate=n?w/n*100:0,se=n?1.96*Math.sqrt(p*(1-p)/n)*100:0;
+      return '<div><small>'+title+'</small><strong>'+(n?rate.toFixed(1)+'%':'--')+'</strong><small>'+w+' wins in '+n+' ticks'+(n?' (95% range of luck: '+(p*100-se).toFixed(1)+'% to '+(p*100+se).toFixed(1)+'%)':'')+'</small></div>';
+    }
+    sc.innerHTML=card('Cold-digit rule',tally.cold)+card('Hot-digit rule',tally.hot)+'<div><small>Chance of winning any single tick</small><strong>'+(p*100).toFixed(1)+'%</strong><small>Baseline for '+tn+'</small></div>';
+  }
+
+  $('ttype').onchange=function(){if(Object.keys(cache).length){buildRows();renderRows();}computeEntry();render();};
+  $('scan').onclick=scan;
+  $('watch').onclick=function(){startLive(selected);};
+  $('target').onchange=function(){computeEntry();render();};$('klen').onchange=function(){computeEntry();render();};$('win').onchange=render;
+  render();
+})();
+</script>
+</body>
+</html>
